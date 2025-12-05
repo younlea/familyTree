@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>침교택파 족보 뷰어 (Layout Fix)</title>
+    <title>침교택파 족보 뷰어</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #222; font-family: 'Malgun Gothic', sans-serif; }
+        body { margin: 0; overflow: hidden; background: #222; font-family: 'Malgun Gothic', serif; }
         
         #loading-mask {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -27,38 +27,45 @@
         button.action-btn { background: #007bff; }
         button.dev-btn { background: #d9534f; font-size: 12px; padding: 5px 10px; display: none;} 
 
-        /* [핵심 수정 1] Flex 제거 -> block으로 변경 */
-        #viewport { 
-            width: 100vw; height: 100vh; 
-            overflow: hidden; 
-            position: relative; /* 자식 absolute 기준점 */
-            cursor: grab; 
-            background-color: #222;
-        }
+        #viewport { width: 100vw; height: 100vh; overflow: hidden; position: relative; cursor: grab; background-color: #222; }
         #viewport:active { cursor: grabbing; }
         
-        /* [핵심 수정 2] 이미지를 무조건 0,0 좌표에서 시작하게 고정 */
-        #image-container { 
-            position: absolute; 
-            top: 0; 
-            left: 0;
-            transform-origin: 0 0; 
-            will-change: transform;
-        }
-        
+        #image-container { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
         #jocbo-img { display: block; pointer-events: none; user-select: none; }
 
+        /* 검색 마커 */
         #marker-box {
             position: absolute; border: 4px solid #ff0000; background-color: rgba(255, 255, 0, 0.2);
             border-radius: 8px; box-shadow: 0 0 30px rgba(255, 0, 0, 0.8);
-            display: none; z-index: 10; pointer-events: none;
+            display: none; z-index: 20; pointer-events: none;
         }
-        #marker-box::after {
-            content: "👇 여기!"; position: absolute; top: -35px; left: 50%; transform: translateX(-50%);
-            color: #ff0000; font-weight: bold; font-size: 14px; text-shadow: 1px 1px 0 #fff;
-            white-space: nowrap; animation: bounce 1s infinite;
+
+        /* 새 인물 스티커 */
+        .new-person {
+            position: absolute; background: white; border: 1px solid #333;
+            padding: 2px 4px; font-weight: bold; color: black; text-align: center;
+            transform: translate(-50%, -50%); box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+            white-space: nowrap; z-index: 5;
         }
-        @keyframes bounce { 0%, 100% { top: -35px; } 50% { top: -45px; } }
+
+        /* [NEW] 커스텀 입력창 (모달) 스타일 */
+        #custom-modal {
+            display: none; /* 평소엔 숨김 */
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.6); z-index: 10000;
+            justify-content: center; align-items: center;
+        }
+        .modal-content {
+            background: #333; color: white; padding: 20px; border-radius: 10px;
+            width: 300px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .modal-content h3 { margin-top: 0; color: #fff; }
+        .modal-content input { width: 80%; margin-bottom: 20px; text-align: center; }
+        .modal-btns { display: flex; flex-direction: column; gap: 10px; }
+        .modal-btns button { width: 100%; }
+        .btn-edit { background: #17a2b8; }
+        .btn-new { background: #28a745; }
+        .btn-cancel { background: #6c757d; }
 
         .dev-mode #viewport { cursor: crosshair !important; }
         .dev-mode #jocbo-img { pointer-events: auto; }
@@ -66,29 +73,43 @@
 </head>
 <body>
 
-    <div id="loading-mask">
-        <span id="loading-text">시스템 준비 중...</span>
-    </div>
+    <div id="loading-mask"><span id="loading-text">시스템 준비 중...</span></div>
 
     <div id="controls">
         <input type="text" id="searchInput" placeholder="이름 입력 (Enter)" onkeyup="if(window.event.keyCode==13){findName()}">
         <button onclick="findName()" class="action-btn">검색</button>
         <button onclick="centerImage(true)">전체보기</button>
-        <button onclick="toggleDevMode()" class="dev-btn" id="devBtn">🛠 좌표따기</button>
+        <button onclick="toggleDevMode()" class="dev-btn" id="devBtn">🛠 관리자 모드</button>
     </div>
 
     <div id="viewport">
         <div id="image-container">
             <img src="jocbo.jpeg" id="jocbo-img" alt="족보">
             <div id="marker-box"></div>
+            <div id="overlay-layer"></div>
+        </div>
+    </div>
+
+    <div id="custom-modal">
+        <div class="modal-content">
+            <h3>데이터 입력</h3>
+            <p style="font-size: 12px; color: #ccc;">클릭한 위치에 정보를 저장합니다.</p>
+            <input type="text" id="modal-name-input" placeholder="이름을 입력하세요">
+            <div class="modal-btns">
+                <button class="btn-edit" onclick="saveData('edit')">📍 기존 위치만 수정</button>
+                <button class="btn-new" onclick="saveData('new')">✨ 새 인물 추가 (박스 생성)</button>
+                <button class="btn-cancel" onclick="closeModal()">취소</button>
+            </div>
         </div>
     </div>
 
     <script>
         let nameDB = [];
+        // 클릭한 좌표 임시 저장용 변수
+        let tempX = 0;
+        let tempY = 0;
 
         window.onload = async function() {
-            // 1. 설정 및 DB 로드
             try {
                 const confRes = await fetch('/config');
                 const config = await confRes.json();
@@ -97,134 +118,140 @@
 
             try {
                 const response = await fetch('db.json?t=' + new Date().getTime());
-                if (response.ok) nameDB = await response.json();
+                if (response.ok) {
+                    nameDB = await response.json();
+                    drawOverlays();
+                }
             } catch (error) { nameDB = []; }
-
-            // 2. 이미지 로딩 체크
             checkImageStatus();
         };
 
         function checkImageStatus() {
             const img = document.getElementById('jocbo-img');
-            if (img.complete && img.naturalWidth > 0) {
-                // 로딩 완료 후 즉시 실행
-                centerImage(true);
-            } else {
-                setTimeout(checkImageStatus, 100);
-            }
+            if (img.complete && img.naturalWidth > 0) centerImage(true);
+            else setTimeout(checkImageStatus, 100);
         }
 
-        // =========================================================
-        // [Viewer Logic]
-        // =========================================================
-        let scale = 1; let pointX = 0, pointY = 0;
-        let isDragging = false, startX, startY;
-        const container = document.getElementById('image-container');
-        const viewport = document.getElementById('viewport');
+        function drawOverlays() {
+            const layer = document.getElementById('overlay-layer');
+            const img = document.getElementById('jocbo-img');
+            if (!img.naturalWidth) { setTimeout(drawOverlays, 100); return; }
+
+            layer.innerHTML = '';
+            nameDB.forEach(person => {
+                if (person.type === "new") {
+                    const div = document.createElement('div');
+                    div.className = 'new-person';
+                    div.innerText = person.n;
+                    div.style.left = person.x + '%';
+                    div.style.top = person.y + '%';
+                    const fontSize = Math.max(12, img.naturalWidth * 0.006); 
+                    div.style.fontSize = fontSize + 'px';
+                    layer.appendChild(div);
+                }
+            });
+        }
+
+        // --- 뷰어 로직 ---
+        let scale = 1, pX = 0, pY = 0, isDragging = false, sX, sY;
+        const con = document.getElementById('image-container');
         const img = document.getElementById('jocbo-img');
         const mask = document.getElementById('loading-mask');
 
-        function updateTransform() { 
-            container.style.transform = `translate(${pointX}px, ${pointY}px) scale(${scale})`; 
+        function updateTransform() { con.style.transform = `translate(${pX}px, ${pY}px) scale(${scale})`; }
+
+        function centerImage(reset = false) {
+            const iW = img.naturalWidth, iH = img.naturalHeight;
+            if (!iW) return;
+            scale = Math.min(innerWidth / iW, innerHeight / iH) * 0.95;
+            pX = (innerWidth - (iW * scale)) / 2;
+            pY = (innerHeight - (iH * scale)) / 2;
+            updateTransform();
+            if (reset) document.getElementById('marker-box').style.display = 'none';
+            mask.style.opacity = 0; setTimeout(() => { mask.style.display = 'none'; }, 500);
         }
 
-        function centerImage(forceReset = false) {
-            const imgW = img.naturalWidth; const imgH = img.naturalHeight;
-            const viewW = window.innerWidth; const viewH = window.innerHeight;
-
-            if (!imgW) return;
-
-            // 1. 화면의 95% 크기로 맞춤 (약간의 여백)
-            scale = Math.min(viewW / imgW, viewH / imgH) * 0.95;
-            
-            // 2. 정확한 중앙 좌표 계산 (0,0 기준)
-            pointX = (viewW - (imgW * scale)) / 2;
-            pointY = (viewH - (imgH * scale)) / 2;
-
-            updateTransform();
-            
-            if (forceReset) document.getElementById('marker-box').style.display = 'none';
-
-            // 로딩 마스크 제거
-            mask.style.opacity = 0;
-            setTimeout(() => { mask.style.display = 'none'; }, 500);
-        }
-
-        // 윈도우 크기 변경 대응
-        window.addEventListener('resize', () => {
-             if(document.getElementById('marker-box').style.display === 'none') centerImage(false);
-        });
-
-        viewport.addEventListener('mousedown', (e) => {
-            if (isDevMode) return;
-            isDragging = true; startX = e.clientX - pointX; startY = e.clientY - pointY;
-        });
-        window.addEventListener('mouseup', () => isDragging = false);
-        window.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            e.preventDefault(); pointX = e.clientX - startX; pointY = e.clientY - startY; updateTransform();
-        });
-        viewport.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            const delta = -e.deltaY;
-            const xs = (e.clientX - pointX) / scale; const ys = (e.clientY - pointY) / scale;
-            (delta > 0) ? (scale *= 1.1) : (scale /= 1.1);
-            pointX = e.clientX - xs * scale; pointY = e.clientY - ys * scale;
-            updateTransform();
-        });
+        const vp = document.getElementById('viewport');
+        vp.onmousedown = e => { if(!isDevMode) { isDragging=true; sX=e.clientX-pX; sY=e.clientY-pY; }};
+        window.onmouseup = () => isDragging=false;
+        window.onmousemove = e => { if(isDragging) { e.preventDefault(); pX=e.clientX-sX; pY=e.clientY-sY; updateTransform(); }};
+        vp.onwheel = e => { e.preventDefault(); const d = -e.deltaY>0?1.1:0.9; const xs=(e.clientX-pX)/scale, ys=(e.clientY-pY)/scale; scale*=d; pX=e.clientX-xs*scale; pY=e.clientY-ys*scale; updateTransform(); };
 
         function findName() {
-            const input = document.getElementById('searchInput').value.trim();
-            if (!input) return;
-            const targets = nameDB.slice().reverse().filter(item => item.n === input || item.n.includes(input));
-
-            if (targets.length > 0) {
-                const target = targets[0];
-                const imgW = img.naturalWidth; const imgH = img.naturalHeight;
-                const realX = (target.x / 100) * imgW; const realY = (target.y / 100) * imgH;
-                const marker = document.getElementById('marker-box');
-                marker.style.display = 'block';
-                marker.style.width = (imgW * 0.04) + 'px'; marker.style.height = (imgH * 0.025) + 'px';
-                marker.style.left = (realX - (imgW * 0.02)) + 'px'; marker.style.top = (realY - (imgH * 0.012)) + 'px';
-                scale = 1.0; 
-                pointX = (window.innerWidth / 2) - (realX * scale); pointY = (window.innerHeight / 2) - (realY * scale);
-                updateTransform();
-            } else { alert("등록되지 않은 이름입니다."); }
+            const val = document.getElementById('searchInput').value.trim();
+            if(!val) return;
+            const found = nameDB.slice().reverse().find(i => i.n === val || i.n.includes(val));
+            if(found) {
+                const iW = img.naturalWidth, iH = img.naturalHeight;
+                const rX = (found.x/100)*iW, rY = (found.y/100)*iH;
+                const mk = document.getElementById('marker-box');
+                mk.style.display='block';
+                mk.style.width = (iW*0.04)+'px'; mk.style.height = (iH*0.025)+'px';
+                mk.style.left = (rX - iW*0.02)+'px'; mk.style.top = (rY - iH*0.012)+'px';
+                scale=1; pX=innerWidth/2 - rX*scale; pY=innerHeight/2 - rY*scale; updateTransform();
+            } else alert("없습니다.");
         }
 
-        // 개발 모드
+        // --- 관리자 모드 로직 ---
         let isDevMode = false;
         function toggleDevMode() {
             isDevMode = !isDevMode;
             const btn = document.getElementById('devBtn');
             const body = document.body;
             if (isDevMode) {
-                btn.innerText = "이름을 클릭하세요"; btn.style.background = "#28a745"; body.classList.add('dev-mode');
+                btn.innerText = "화면을 클릭하세요"; btn.style.background = "#28a745"; body.classList.add('dev-mode');
             } else {
-                btn.innerText = "🛠 좌표따기"; btn.style.background = "#d9534f"; body.classList.remove('dev-mode');
+                btn.innerText = "🛠 관리자 모드"; btn.style.background = "#d9534f"; body.classList.remove('dev-mode');
             }
         }
 
-        img.addEventListener('click', (e) => {
-            if (!isDevMode) return;
-            const rect = img.getBoundingClientRect();
-            // 클릭 이벤트 좌표 보정
-            const perX = ((e.clientX - rect.left) / rect.width) * 100;
-            const perY = ((e.clientY - rect.top) / rect.height) * 100;
-            const name = prompt(`좌표 저장!\n이름을 입력하세요:`);
-            if (name) {
-                const newData = { n: name, x: parseFloat(perX.toFixed(2)), y: parseFloat(perY.toFixed(2)) };
-                fetch('/add_coordinate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(newData)
-                })
-                .then(res => {
-                    if (res.ok) { nameDB.push(newData); alert("저장 완료!"); }
-                    else alert("수정 권한이 없습니다!");
-                });
+        // 이미지 클릭 시 모달창 띄우기
+        img.onclick = e => {
+            if(!isDevMode) return;
+            const r = img.getBoundingClientRect();
+            // 좌표 전역변수에 저장
+            tempX = ((e.clientX - r.left)/r.width)*100;
+            tempY = ((e.clientY - r.top)/r.height)*100;
+            
+            // 모달창 보이기
+            document.getElementById('modal-name-input').value = "";
+            document.getElementById('custom-modal').style.display = "flex";
+            document.getElementById('modal-name-input').focus();
+        };
+
+        // 데이터 저장 (모달창 버튼 클릭 시 실행)
+        function saveData(mode) {
+            const name = document.getElementById('modal-name-input').value.trim();
+            if (!name) { alert("이름을 입력하세요."); return; }
+
+            const data = { n: name, x: parseFloat(tempX.toFixed(2)), y: parseFloat(tempY.toFixed(2)) };
+            
+            // 모드에 따라 type 추가
+            if (mode === 'new') {
+                data.type = "new";
             }
-        });
+
+            fetch('/add_coordinate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            }).then(res => {
+                if(res.ok) {
+                    // 기존 동일 이름 제거 후 추가 (업데이트 효과)
+                    nameDB = nameDB.filter(p => p.n !== name);
+                    nameDB.push(data);
+                    drawOverlays(); // 화면 갱신
+                    closeModal(); // 창 닫기
+                    alert("저장 완료!");
+                } else {
+                    alert("오류: 수정 권한이 없습니다.");
+                }
+            });
+        }
+
+        function closeModal() {
+            document.getElementById('custom-modal').style.display = "none";
+        }
     </script>
 </body>
 </html>
